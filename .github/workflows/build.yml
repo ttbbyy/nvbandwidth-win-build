@@ -1,0 +1,63 @@
+
+name: Build nvbandwidth Windows RTX50
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-2022
+
+    steps:
+      - name: Download NVIDIA source
+        uses: actions/checkout@v4
+        with:
+          repository: NVIDIA/nvbandwidth
+          ref: v0.10.0
+          path: source
+
+      - name: Install CUDA 12.8
+        uses: Jimver/cuda-toolkit@v0.2.36
+        with:
+          cuda: '12.8.1'
+          method: network
+          sub-packages: '["nvcc", "cudart", "nvml_dev", "visual_studio_integration"]'
+
+      - name: Compile for RTX 50
+        shell: pwsh
+        run: |
+          nvcc --version
+
+          $lib = Join-Path $env:CUDA_PATH "lib\x64"
+          $env:LIB = "$lib;$env:LIB"
+
+          cmake -S source -B build `
+            -G "Visual Studio 17 2022" `
+            -A x64 `
+            -DCMAKE_CUDA_ARCHITECTURES=120 `
+            -DCMAKE_CUDA_RUNTIME_LIBRARY=Static
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "CMake configuration failed"
+          }
+
+          cmake --build build --config Release --parallel 4
+
+          if ($LASTEXITCODE -ne 0) {
+            throw "Compilation failed"
+          }
+
+          New-Item -ItemType Directory -Force dist
+
+          Copy-Item build/Release/nvbandwidth.exe dist/
+
+          $runtime = Join-Path $env:CUDA_PATH "bin\cudart64_12.dll"
+          if (Test-Path $runtime) {
+            Copy-Item $runtime dist/
+          }
+
+      - name: Upload Windows EXE
+        uses: actions/upload-artifact@v4
+        with:
+          name: nvbandwidth-Windows-RTX50
+          path: dist/*
